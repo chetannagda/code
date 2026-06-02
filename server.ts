@@ -7,7 +7,6 @@ import cookieParser from 'cookie-parser';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import JSZip from 'jszip';
-import { createServer as createViteServer } from 'vite';
 import { connectToDatabase, db } from './server/db.js';
 
 // Setup key configurations
@@ -86,7 +85,6 @@ async function startServer() {
   });
 
   const getCookieOptions = (req: any) => {
-    // Force secure and sameSite: 'none' for maximum compatibility inside secure iframes
     return {
       httpOnly: true,
       secure: true,
@@ -108,11 +106,9 @@ async function startServer() {
         return res.status(400).json({ error: 'System is already bootstrapped.' });
       }
 
-      // Hash password and create user
       const passwordHash = await bcrypt.hash(password, 10);
       const user = await db.users.create({ username, passwordHash });
 
-      // Generate JWT and set HttpOnly Cookie
       const token = jwt.sign({ userId: user._id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
       res.cookie('token', token, getCookieOptions(req));
 
@@ -140,7 +136,6 @@ async function startServer() {
         return res.status(401).json({ error: 'Invalid username or password.' });
       }
 
-      // Set cookie
       const token = jwt.sign({ userId: user._id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
       res.cookie('token', token, getCookieOptions(req));
 
@@ -182,27 +177,20 @@ async function startServer() {
           return res.status(400).json({ error: 'Invalid JSON content.' });
         }
       } else if (lang === 'python') {
-        // autopep8-style parser
         const lines = content.split('\n');
         formatted = lines
           .map((line: string) => {
-            // Trim trailing whitespace
             let cleaned = line.trimEnd();
-            // Standardize spaces around basic operators
             cleaned = cleaned.replace(/\s*([=+\-*/%&|^<>])\s*/g, ' $1 ');
-            // Correct some extra spaces like '  =  '
             cleaned = cleaned.replace(/\s{2,}/g, ' ');
-            // Make sure indentation (multiples of 4) is respected
             const matchIndex = line.search(/\S/);
             const indentSize = matchIndex > 0 ? matchIndex : 0;
             const spaces = ' '.repeat(indentSize);
             return spaces + cleaned.trim();
           })
           .join('\n')
-          // Standardize end of file with a single newline
           .trim() + '\n';
       } else if (['javascript', 'typescript', 'javascriptreact', 'typescriptreact', 'jsx', 'tsx'].includes(lang)) {
-        // Prettier-style formatting
         const lines = content.split('\n');
         let currentIndent = 0;
         formatted = lines
@@ -220,13 +208,11 @@ async function startServer() {
           })
           .join('\n');
       } else if (lang === 'yaml' || lang === 'yml') {
-        // normalize indentation
         const lines = content.split('\n');
         formatted = lines
           .map((line: string) => {
             const trimmed = line.trim();
             if (!trimmed) return '';
-            // Ensure proper spaces after colons
             let cleaned = trimmed.replace(/:\s*(\S)/, ': $1');
             const matchIndex = line.search(/\S/);
             const indentSize = matchIndex > 0 ? Math.floor(matchIndex / 2) * 2 : 0;
@@ -234,20 +220,16 @@ async function startServer() {
           })
           .join('\n');
       } else if (lang === 'robot' || lang === 'robotframework') {
-        // Robot Framework: Align keywords and arguments
         const lines = content.split('\n');
         formatted = lines
           .map((line: string) => {
-            // Lines starting with *** are section headers
             if (line.trim().startsWith('***')) {
               return line.trim();
             }
-            // Robot files use double-spaces or tabs as delimiters
             const parts = line.split(/\s{2,}|\t/);
             if (parts.length <= 1) {
               return line;
             }
-            // First item (e.g. key) aligned nicely
             const isSetVal = parts[0].trim().startsWith('${') || parts[0].trim() === '';
             const paddedBase = isSetVal ? parts[0].trim().padEnd(20) : parts[0].trim().padEnd(30);
             const rest = parts.slice(1).map(p => p.trim()).filter(Boolean);
@@ -264,7 +246,6 @@ async function startServer() {
 
   // --- FILE SYSTEM API ENDPOINTS ---
 
-  // Get File Structure
   app.get('/api/fs', authenticateToken, async (req, res) => {
     try {
       const activeFolders = await db.folders.find({ isDeleted: false });
@@ -275,7 +256,6 @@ async function startServer() {
     }
   });
 
-  // Get Empty or Deleted Items list (Recycle Bin / Trash)
   app.get('/api/fs/trash', authenticateToken, async (req, res) => {
     try {
       const allFolders = await db.folders.find();
@@ -288,7 +268,6 @@ async function startServer() {
     }
   });
 
-  // Empty Trash Permanently
   app.post('/api/fs/trash/empty', authenticateToken, async (req, res) => {
     try {
       const allFolders = await db.folders.find();
@@ -312,7 +291,6 @@ async function startServer() {
     }
   });
 
-  // Restore deleted folder/file
   app.post('/api/fs/restore/:type/:id', authenticateToken, async (req, res) => {
     try {
       const { type, id } = req.params;
@@ -325,7 +303,6 @@ async function startServer() {
         const folder = await db.folders.findById(id);
         if (!folder) return res.status(404).json({ error: 'Folder not found' });
 
-        // Restore recursive folders and files
         const restoreRecursive = async (folderId: string) => {
           await db.folders.update(folderId, { isDeleted: false });
           const childFiles = await db.files.findAllIncludingDeleted();
@@ -350,7 +327,6 @@ async function startServer() {
     }
   });
 
-  // Create Folder
   app.post('/api/fs/folder', authenticateToken, async (req, res) => {
     try {
       const { name, parentId } = req.body;
@@ -364,7 +340,6 @@ async function startServer() {
     }
   });
 
-  // Create File
   app.post('/api/fs/file', authenticateToken, async (req, res) => {
     try {
       const { name, content, language, path: filePath, folderId } = req.body;
@@ -372,7 +347,6 @@ async function startServer() {
         return res.status(400).json({ error: 'File name is required.' });
       }
 
-      // Map file extension to Monaco language
       const ext = path.extname(name).toLowerCase();
       let lang = language || 'plaintext';
       if (!language) {
@@ -384,8 +358,8 @@ async function startServer() {
         else if (ext === '.go') lang = 'go';
         else if (ext === '.js') lang = 'javascript';
         else if (ext === '.ts') lang = 'typescript';
-        else if (ext === '.jsx') lang = 'javascript'; // or jsx
-        else if (ext === '.tsx') lang = 'typescript'; // or tsx
+        else if (ext === '.jsx') lang = 'javascript';
+        else if (ext === '.tsx') lang = 'typescript';
         else if (ext === '.md') lang = 'markdown';
       }
 
@@ -403,7 +377,6 @@ async function startServer() {
     }
   });
 
-  // Update Folder (Rename or Move)
   app.put('/api/fs/folder/:id', authenticateToken, async (req, res) => {
     try {
       const { id } = req.params;
@@ -422,7 +395,6 @@ async function startServer() {
     }
   });
 
-  // Update File (Content, Save, Rename, Move)
   app.put('/api/fs/file/:id', authenticateToken, async (req, res) => {
     try {
       const { id } = req.params;
@@ -434,7 +406,6 @@ async function startServer() {
       if (filePath !== undefined) updates.path = filePath;
       if (folderId !== undefined) updates.folderId = folderId || null;
 
-      // Also dynamically update language if name changed and language was not explicitly provided
       if (name !== undefined && language === undefined) {
         const ext = path.extname(name).toLowerCase();
         if (ext === '.py') updates.language = 'python';
@@ -460,7 +431,6 @@ async function startServer() {
     }
   });
 
-  // Delete Folder (Soft delete)
   app.delete('/api/fs/folder/:id', authenticateToken, async (req, res) => {
     try {
       const { id } = req.params;
@@ -471,7 +441,6 @@ async function startServer() {
         return res.json({ success: deleted });
       }
 
-      // Soft delete recursively
       const softDeleteRecursive = async (folderId: string) => {
         await db.folders.update(folderId, { isDeleted: true });
         const allFiles = await db.files.findAllIncludingDeleted();
@@ -493,7 +462,6 @@ async function startServer() {
     }
   });
 
-  // Delete File (Soft delete)
   app.delete('/api/fs/file/:id', authenticateToken, async (req, res) => {
     try {
       const { id } = req.params;
@@ -515,8 +483,6 @@ async function startServer() {
     }
   });
 
-  // --- ZIP UPLOAD AND PARSE ---
-  // Expects a multipart file or direct binary upload/base64 payload
   app.post('/api/fs/zip', authenticateToken, async (req, res) => {
     try {
       const { zipBase64, parentFolderId } = req.body;
@@ -527,23 +493,19 @@ async function startServer() {
       const zip = new JSZip();
       const zipData = await zip.loadAsync(zipBase64, { base64: true });
 
-      // Track mapped folder structures dynamically during parsing
-      const folderMap = new Map<string, string>(); // ZipPath -> DB ObjectID String
+      const folderMap = new Map<string, string>();
       let filesCreatedCount = 0;
       let foldersCreatedCount = 0;
 
-      // Filter and sort items to ensure folders are processed before files
       const paths = Object.keys(zipData.files).sort((a, b) => a.localeCompare(b));
 
       for (const p of paths) {
         const zipEntry = zipData.files[p];
         if (zipEntry.dir) {
-          // Folder creation
-          const relativePath = p.replace(/\/$/, ''); // sanitize trailing slash
+          const relativePath = p.replace(/\/$/, '');
           const folderParts = relativePath.split('/');
           const folderName = folderParts[folderParts.length - 1];
 
-          // Determine parent id
           let dbParentId = parentFolderId || null;
           if (folderParts.length > 1) {
             const parentRelativePath = folderParts.slice(0, -1).join('/');
@@ -554,11 +516,9 @@ async function startServer() {
           folderMap.set(relativePath, dbFolder._id);
           foldersCreatedCount++;
         } else {
-          // File creation
           const fileParts = p.split('/');
           const fileName = fileParts[fileParts.length - 1];
 
-          // Determine parent folder id
           let dbParentFolderId = parentFolderId || null;
           if (fileParts.length > 1) {
             const parentRelativePath = fileParts.slice(0, -1).join('/');
@@ -567,7 +527,6 @@ async function startServer() {
 
           const fileContent = await zipEntry.async('string');
 
-          // Language matching
           const ext = path.extname(fileName).toLowerCase();
           let lang = 'plaintext';
           if (ext === '.py') lang = 'python';
@@ -602,7 +561,6 @@ async function startServer() {
     }
   });
 
-  // --- GLOBAL CODE SEARCH ---
   app.get('/api/search', authenticateToken, async (req, res) => {
     try {
       const { q } = req.query;
@@ -622,7 +580,6 @@ async function startServer() {
       }> = [];
 
       for (const file of activeFiles) {
-        // Match in filename
         if (file.name.toLowerCase().includes(queryLower)) {
           results.push({
             fileId: file._id,
@@ -634,7 +591,6 @@ async function startServer() {
           });
         }
 
-        // Match in content line by line
         const lines = file.content.split('\n');
         lines.forEach((lineText, idx) => {
           if (lineText.toLowerCase().includes(queryLower)) {
@@ -650,16 +606,12 @@ async function startServer() {
         });
       }
 
-      // De-duplicate if some files have multiple matches, prioritize showing them correctly
       res.json({ query: q, results });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // --- LINE ANNOTATIONS & HIGHLIGHTS ---
-
-  // Get line annotations for specific file
   app.get('/api/annotations/:fileId', authenticateToken, async (req, res) => {
     try {
       const list = await db.lineAnnotations.findByFile(req.params.fileId);
@@ -669,7 +621,6 @@ async function startServer() {
     }
   });
 
-  // Upsert/Create line annotation (Both notes and highlights)
   app.post('/api/annotations/:fileId', authenticateToken, async (req, res) => {
     try {
       const { fileId } = req.params;
@@ -690,7 +641,6 @@ async function startServer() {
     }
   });
 
-  // Delete individual line annotation or highlight
   app.delete('/api/annotations/:fileId/:lineNumber', authenticateToken, async (req, res) => {
     try {
       const { fileId, lineNumber } = req.params;
@@ -701,8 +651,6 @@ async function startServer() {
     }
   });
 
-  // --- SNIPPETS CRUD ---
-  // Get all snippets
   app.get('/api/snippets', authenticateToken, async (req, res) => {
     try {
       const { search } = req.query;
@@ -713,7 +661,6 @@ async function startServer() {
     }
   });
 
-  // Create snippet
   app.post('/api/snippets', authenticateToken, async (req, res) => {
     try {
       const { name, content, language } = req.body;
@@ -731,7 +678,6 @@ async function startServer() {
     }
   });
 
-  // Delete snippet
   app.delete('/api/snippets/:id', authenticateToken, async (req, res) => {
     try {
       const { id } = req.params;
@@ -742,7 +688,6 @@ async function startServer() {
     }
   });
 
-  // --- GLOBAL FIND & REPLACE ---
   app.post('/api/fs/replace-all', authenticateToken, async (req, res) => {
     try {
       const { findText, replaceText, languageFilter } = req.body;
@@ -750,11 +695,9 @@ async function startServer() {
         return res.status(400).json({ error: 'Find text is required.' });
       }
 
-      // Fetch all normal files
       const allFiles = await db.files.find({ isDeleted: false });
       let filesToUpdate = allFiles;
 
-      // Filter by language if specified
       if (languageFilter && languageFilter !== 'all') {
         const queryLang = languageFilter.toLowerCase();
         filesToUpdate = allFiles.filter(f => f.language.toLowerCase() === queryLang);
@@ -786,7 +729,6 @@ async function startServer() {
     }
   });
 
-  // --- GIST IMPORT ---
   app.post('/api/gist/import', authenticateToken, async (req, res) => {
     try {
       const { url, targetFolderId } = req.body;
@@ -806,9 +748,7 @@ async function startServer() {
       }
 
       const response = await fetch(`https://api.github.com/gists/${gistId}`, {
-        headers: {
-          'User-Agent': 'CodeVault-Applet-Importer'
-        }
+        headers: { 'User-Agent': 'CodeVault-Applet-Importer' }
       });
 
       if (!response.ok) {
@@ -824,7 +764,7 @@ async function startServer() {
       const importedFiles = [];
       const parentFolderId = targetFolderId || null;
 
-      const languageMapping = (filename) => {
+      const languageMapping = (filename: string) => {
         const ext = path.extname(filename).toLowerCase();
         if (['.js', '.mjs', '.cjs'].includes(ext)) return 'javascript';
         if (['.ts', '.mts'].includes(ext)) return 'typescript';
@@ -841,7 +781,6 @@ async function startServer() {
         const fileObj = gistFiles[filename];
         const content = fileObj.content || '';
         const language = languageMapping(filename);
-
         const pathPrefix = parentFolderId ? `Gist-${gistId}/${filename}` : filename;
 
         const newFile = await db.files.create({
@@ -864,7 +803,6 @@ async function startServer() {
     }
   });
 
-  // --- GITHUB REPOSITORY IMPORT ---
   app.post('/api/github/import-repo', authenticateToken, async (req, res) => {
     try {
       const { url } = req.body;
@@ -879,8 +817,6 @@ async function startServer() {
       let repoName = '';
       let specifiedBranch = '';
 
-      // Match typical GitHub repository layouts:
-      // https://github.com/owner/repo/tree/branch-name or https://github.com/owner/repo
       const branchRegex = /github\.com\/([^\/]+)\/([^\/]+)\/tree\/([^\/]+)/i;
       const branchMatch = repoUrl.match(branchRegex);
       if (branchMatch) {
@@ -897,10 +833,9 @@ async function startServer() {
       }
 
       if (!owner || !repoName) {
-        return res.status(400).json({ error: 'Failed to extract GitHub repository owner and name. Please verify the URL structure.' });
+        return res.status(400).json({ error: 'Failed to extract GitHub repository owner and name.' });
       }
 
-      // 1. Fetch Repository Info to get Default Branch if not specified
       let branch = specifiedBranch;
       if (!branch) {
         const repoInfoRes = await fetch(`https://api.github.com/repos/${owner}/${repoName}`, {
@@ -910,18 +845,17 @@ async function startServer() {
           const repoInfo = await repoInfoRes.json();
           branch = repoInfo.default_branch || 'main';
         } else {
-          branch = 'main'; // fallback
+          branch = 'main';
         }
       }
 
-      // 2. Query GitHub Recursive Tree API
       const treeUrl = `https://api.github.com/repos/${owner}/${repoName}/git/trees/${branch}?recursive=1`;
       const treeRes = await fetch(treeUrl, {
         headers: { 'User-Agent': 'CodeVault-Applet-Importer' }
       });
 
       if (!treeRes.ok) {
-        throw new Error(`GitHub Git Tree API responded with status ${treeRes.status}. Make sure the repository is public.`);
+        throw new Error(`GitHub Git Tree API responded with status ${treeRes.status}.`);
       }
 
       const treeData = await treeRes.json();
@@ -931,36 +865,28 @@ async function startServer() {
 
       const allBlobs = treeData.tree.filter((item: any) => item.type === 'blob');
 
-      // 3. Filter Blobs (skip bin, vendor, lock, lockfiles, node_modules, logs)
       const isReadableTextFile = (filePath: string) => {
         const ext = path.extname(filePath).toLowerCase();
         const skipDirs = ['node_modules/', '.git/', 'dist/', 'build/', '.next/', '.expo/', 'vendor/', 'bin/', 'obj/', '.vscode/', 'yarn.lock', 'package-lock.json', 'pnpm-lock.yaml'];
         if (skipDirs.some(dir => filePath.includes(dir))) return false;
-
-        const allowedExtensions = [
-          '.ts', '.tsx', '.js', '.jsx', '.json', '.css', '.html', '.md',
-          '.py', '.java', '.cpp', '.c', '.h', '.cs', '.go', '.rs', '.sh',
-          '.yml', '.yaml', '.sql', '.toml', '.xml', '.txt', '.ini', '.cfg'
-        ];
+        const allowedExtensions = ['.ts', '.tsx', '.js', '.jsx', '.json', '.css', '.html', '.md', '.py', '.java', '.cpp', '.c', '.h', '.cs', '.go', '.rs', '.sh', '.yml', '.yaml', '.sql', '.toml', '.xml', '.txt', '.ini', '.cfg'];
         return allowedExtensions.includes(ext);
       };
 
       const filteredBlobs = allBlobs.filter((item: any) => isReadableTextFile(item.path));
 
       if (filteredBlobs.length === 0) {
-        return res.status(400).json({ error: 'No compatible code or markdown files found in the repository.' });
+        return res.status(400).json({ error: 'No compatible code files found in the repository.' });
       }
 
-      // Cap at 120 files to prevent performance loss and server thresholds
       const maxFiles = 120;
       const isCapped = filteredBlobs.length > maxFiles;
       const blobsToImport = filteredBlobs.slice(0, maxFiles);
 
-      // Create directories first in hierarchy order
       const pathFolderMap = new Map<string, string>();
       for (const item of blobsToImport) {
         const parts = item.path.split('/');
-        parts.pop(); // remove filename
+        parts.pop();
 
         let currentParentId: string | null = null;
         let currentPath = '';
@@ -983,7 +909,6 @@ async function startServer() {
         }
       }
 
-      // Reusable language mapper
       const languageMapping = (filePath: string) => {
         const ext = path.extname(filePath).toLowerCase();
         if (['.js', '.mjs', '.cjs', '.jsx'].includes(ext)) return 'javascript';
@@ -1002,24 +927,18 @@ async function startServer() {
         return 'plaintext';
       };
 
-      // 4. Download file content and save to Database
       const importedFilesCount = [];
       for (const item of blobsToImport) {
         try {
           const rawUrl = `https://raw.githubusercontent.com/${owner}/${repoName}/${branch}/${item.path}`;
-          const rawRes = await fetch(rawUrl, {
-            headers: { 'User-Agent': 'CodeVault-Applet-Importer' }
-          });
+          const rawRes = await fetch(rawUrl, { headers: { 'User-Agent': 'CodeVault-Applet-Importer' } });
 
           let content = '';
           if (rawRes.ok) {
             content = await rawRes.text();
           } else {
-            // fallback: fetch blob content via git api if raw returns not found
             const blobApiUrl = `https://api.github.com/repos/${owner}/${repoName}/git/blobs/${item.sha}`;
-            const blobApiRes = await fetch(blobApiUrl, {
-              headers: { 'User-Agent': 'CodeVault-Applet-Importer' }
-            });
+            const blobApiRes = await fetch(blobApiUrl, { headers: { 'User-Agent': 'CodeVault-Applet-Importer' } });
             if (blobApiRes.ok) {
               const blobData = await blobApiRes.json();
               if (blobData.encoding === 'base64') {
@@ -1049,17 +968,16 @@ async function startServer() {
         }
       }
 
-      const cappedMessage = isCapped ? ` (Note: capped at first ${maxFiles} primary files to prevent token space overflow in UI)` : '';
+      const cappedMessage = isCapped ? ` (Note: capped at first ${maxFiles} files)` : '';
       res.status(201).json({
         success: true,
-        message: `Imported GitHub repo ${owner}/${repoName} branch [${branch}]! Rebuilt ${pathFolderMap.size} directories and imported ${importedFilesCount.length} code files successfully.${cappedMessage}`
+        message: `Imported GitHub repo ${owner}/${repoName} [${branch}]! ${pathFolderMap.size} directories and ${importedFilesCount.length} files imported.${cappedMessage}`
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Failed to extract GitHub repository.' });
     }
   });
 
-  // --- ZIP WORKSPACE EXPORT ---
   app.get('/api/fs/export/zip', authenticateToken, async (req, res) => {
     try {
       const allFiles = await db.files.find({ isDeleted: false });
@@ -1068,10 +986,8 @@ async function startServer() {
       const zip = new JSZip();
       const folderPathMap = new Map();
 
-      const resolveFolderPath = (folderId) => {
-        if (folderPathMap.has(folderId)) {
-          return folderPathMap.get(folderId);
-        }
+      const resolveFolderPath = (folderId: string): string => {
+        if (folderPathMap.has(folderId)) return folderPathMap.get(folderId);
         const matches = allFolders.find(f => f._id === folderId);
         if (!matches) return '';
         const parentPath = matches.parentId ? resolveFolderPath(matches.parentId) : '';
@@ -1086,15 +1002,12 @@ async function startServer() {
         let zipFilePath = file.name;
         if (file.folderId) {
           const folderPath = folderPathMap.get(file.folderId);
-          if (folderPath) {
-            zipFilePath = `${folderPath}/${file.name}`;
-          }
+          if (folderPath) zipFilePath = `${folderPath}/${file.name}`;
         }
         zip.file(zipFilePath, file.content);
       }
 
       const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
-
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader('Content-Disposition', 'attachment; filename="codevault-workspace.zip"');
       res.setHeader('Content-Length', zipBuffer.length);
@@ -1105,8 +1018,9 @@ async function startServer() {
   });
 
   // --- CLIENT-HOSTING INTEGRATION MIDDLEWARE ---
-
+  // ✅ FIX: Dynamic import of vite — only in development, NOT loaded in production/Vercel
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -1134,7 +1048,7 @@ const appPromise = startServer();
 if (!process.env.VERCEL) {
   appPromise.then(app => {
     app.listen(PORT, '0.0.0.0', () => {
-      console.log(`CodeVault full-stack server running perfectly on host 0.0.0.0 port ${PORT}`);
+      console.log(`CodeVault full-stack server running on port ${PORT}`);
     });
   });
 }
@@ -1145,4 +1059,3 @@ const handler = async (req: any, res: any) => {
 };
 
 export default handler;
-
