@@ -1,0 +1,6 @@
+{
+  "name": "CodeVault",
+  "description": "CodeVault is a VS Code-like full-stack personal code management web app featuring file browser, Monaco editor, formatting, notes, and local storage database.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
